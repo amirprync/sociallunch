@@ -187,59 +187,60 @@ def seleccionar_ubicacion(page, config):
 def seleccionar_item_de_categoria(page, config, categoria, keywords, descripcion):
     """
     Va a una categoría y selecciona un item que coincida con los keywords.
+    La selección se hace mediante checkboxes dentro de labels.
     """
     print(f"   🍽️ Seleccionando {descripcion}...")
     
     try:
-        # Click en la categoría del menú superior
-        page.click(f'text="{categoria}"', timeout=5000)
+        # Click en la categoría usando el atributo data-dimension
+        page.click(f'div[data-dimension="{categoria}"]', timeout=5000)
         time.sleep(config["delay_entre_acciones"] / 1000)
         page.wait_for_load_state("networkidle")
         time.sleep(1)
         
-        # Buscar todos los botones AGREGAR visibles
-        botones_agregar = page.locator('text="AGREGAR"').all()
+        # Los items son inputs con clase "selection_items" y tienen data-desc con la descripción
+        items = page.locator('input.selection_items').all()
         
-        if not botones_agregar:
+        if not items:
             print(f"   ⚠️ No hay items en {categoria}")
             return False
         
-        # Para cada botón, buscar el nombre del producto en el contenedor padre
+        print(f"   📋 Encontrados {len(items)} items en {categoria}")
+        
+        # Buscar items que coincidan con los keywords
         items_coincidentes = []
         
-        for boton in botones_agregar:
+        for item in items:
             try:
-                # Subir al contenedor del producto y buscar el texto
-                # El contenedor suele ser un div que tiene el nombre y el botón
-                contenedor = boton.locator("xpath=ancestor::div[contains(@class,'card') or contains(@class,'item') or contains(@class,'producto') or position()=3]")
-                
-                if contenedor.count() == 0:
-                    # Alternativa: buscar texto en el padre inmediato
-                    contenedor = boton.locator("xpath=..")
-                
-                texto_producto = contenedor.inner_text().lower() if contenedor.count() > 0 else ""
+                # Obtener la descripción del item
+                desc = item.get_attribute("data-desc") or ""
+                desc_lower = desc.lower()
                 
                 # Verificar si coincide con algún keyword
                 for keyword in keywords:
-                    if keyword.lower() in texto_producto:
-                        items_coincidentes.append(boton)
+                    if keyword.lower() in desc_lower:
+                        items_coincidentes.append({"elemento": item, "desc": desc})
                         break
             except:
                 continue
         
         # Si encontró coincidencias, elegir una al azar
         if items_coincidentes:
-            boton_elegido = random.choice(items_coincidentes)
-            boton_elegido.click()
-            print(f"   ✅ {descripcion.capitalize()} agregado/a")
+            elegido = random.choice(items_coincidentes)
+            print(f"   ✓ Seleccionando: {elegido['desc'][:50]}...")
+            elegido["elemento"].click()
             time.sleep(config["delay_entre_acciones"] / 1000)
+            print(f"   ✅ {descripcion.capitalize()} agregado/a")
             return True
         else:
             # Si no hay coincidencias, tomar el primero disponible
             print(f"   ⚠️ No se encontró preferencia, tomando primera opción")
-            botones_agregar[0].click()
-            print(f"   ✅ {descripcion.capitalize()} agregado/a (opción alternativa)")
+            primer_item = items[0]
+            desc = primer_item.get_attribute("data-desc") or "item"
+            print(f"   ✓ Seleccionando: {desc[:50]}...")
+            primer_item.click()
             time.sleep(config["delay_entre_acciones"] / 1000)
+            print(f"   ✅ {descripcion.capitalize()} agregado/a (opción alternativa)")
             return True
             
     except PlaywrightTimeout:
@@ -255,7 +256,8 @@ def confirmar_pedido(page):
     print("   💾 Confirmando pedido...")
     
     try:
-        page.click('text="CONFIRMAR"', timeout=5000)
+        # Intentar varios selectores
+        page.click('text=/confirmar/i', timeout=5000)
         time.sleep(2)
         print("   ✅ Pedido confirmado")
         return True
