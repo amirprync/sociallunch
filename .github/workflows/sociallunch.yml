@@ -1,0 +1,31 @@
+name: Social Lunch - Pedido Mensual
+
+on:
+  schedule:
+    - cron: '0 12 1 * *'
+  workflow_dispatch:
+
+jobs:
+  hacer-pedido:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
+      
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Instalar dependencias
+        run: |
+          pip install playwright
+          playwright install chromium
+          playwright install-deps
+      
+      - name: Ejecutar bot
+        env:
+          SOCIALLUNCH_USER: ${{ secrets.SOCIALLUNCH_USER }}
+          SOCIALLUNCH_PASS: ${{ secrets.SOCIALLUNCH_PASS }}
+        run: python sociallunch_bot.py
