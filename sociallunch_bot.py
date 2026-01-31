@@ -256,8 +256,8 @@ def confirmar_pedido(page):
     print("   💾 Confirmando pedido...")
     
     try:
-        # Intentar varios selectores
-        page.click('text=/confirmar/i', timeout=5000)
+        # El botón es un <a> con id="btnConfirmarPedido"
+        page.click('#btnConfirmarPedido', timeout=5000)
         time.sleep(2)
         print("   ✅ Pedido confirmado")
         return True
@@ -269,11 +269,10 @@ def confirmar_pedido(page):
 def volver_al_calendario(page, config):
     """Vuelve a la pantalla del calendario."""
     try:
-        # Intentar botón VOLVER
-        page.click('text="VOLVER"', timeout=3000)
+        # El botón es un <a> con id="btnVolver"
+        page.click('#btnVolver', timeout=3000)
     except:
         try:
-            # Alternativa: ir directo a la URL
             page.goto(config["url"])
         except:
             pass
