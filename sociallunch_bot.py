@@ -102,40 +102,54 @@ def obtener_dias_disponibles(page):
     Obtiene días disponibles para pedir.
     
     Estructura del HTML:
-    - div.date.futuro → Día disponible (sin pedido, con servicio)
-    - div.date.futuro.sin-servicio → Sin servicio
-    - div.date.futuro.con-pedido → Ya tiene pedido
+    - div con id="date_2026-02-XX" 
+    - class contiene "date" y "futuro"
+    - NO contiene "sin-servicio" ni "con-pedido"
     """
     print("\n📅 Buscando días disponibles...")
     time.sleep(2)
     
-    # Selector exacto: días futuros que NO tienen "sin-servicio" NI "con-pedido"
-    # Es decir, días donde se puede hacer un pedido nuevo
-    selector = 'div.date.futuro:not(.sin-servicio):not(.con-pedido)'
+    # Buscar todos los divs que tienen ID que empieza con "date_"
+    todos_los_dias = page.locator('div[id^="date_"]').all()
     
-    dias_elementos = page.locator(selector).all()
+    print(f"   Total de días en calendario: {len(todos_los_dias)}")
     
     dias_disponibles = []
-    for elem in dias_elementos:
+    for elem in todos_los_dias:
         try:
-            # Obtener el ID para saber la fecha (ej: "date_2026-02-03")
-            dia_id = elem.get_attribute("id")
+            clase = elem.get_attribute("class") or ""
+            dia_id = elem.get_attribute("id") or ""
             
-            # Obtener el número del día desde el div.dia_numero
-            numero_elem = elem.locator(".dia_numero")
-            if numero_elem.count() > 0:
-                numero = numero_elem.inner_text().strip()
-                
-                dias_disponibles.append({
-                    "elemento": elem,
-                    "id": dia_id,
-                    "numero": numero
-                })
-                print(f"   ✓ Día {numero} disponible ({dia_id})")
+            # Debug: mostrar qué encontró
+            print(f"   DEBUG: {dia_id} -> clase: '{clase}'")
+            
+            # Verificar condiciones:
+            # 1. Tiene "futuro" en la clase
+            # 2. NO tiene "sin-servicio"
+            # 3. NO tiene "con-pedido"
+            # 4. NO tiene "pasado"
+            es_futuro = "futuro" in clase
+            sin_servicio = "sin-servicio" in clase
+            con_pedido = "con-pedido" in clase
+            es_pasado = "pasado" in clase
+            
+            if es_futuro and not sin_servicio and not con_pedido and not es_pasado:
+                # Obtener el número del día
+                numero_elem = elem.locator(".dia_numero")
+                if numero_elem.count() > 0:
+                    numero = numero_elem.inner_text().strip()
+                    
+                    dias_disponibles.append({
+                        "elemento": elem,
+                        "id": dia_id,
+                        "numero": numero
+                    })
+                    print(f"   ✅ Día {numero} disponible para pedir")
         except Exception as e:
+            print(f"   Error procesando día: {e}")
             continue
     
-    print(f"\n   Encontrados {len(dias_disponibles)} días para pedir")
+    print(f"\n   📊 Resumen: {len(dias_disponibles)} días para pedir")
     return dias_disponibles
 
 
