@@ -86,7 +86,7 @@ def login(page, config):
     page.click('input[type="submit"]')
     
     page.wait_for_load_state("networkidle")
-    time.sleep(3)
+    time.sleep(5)  # Espera más larga para que cargue todo
     
     # Verificar login
     if page.locator("text=HOLA").count() > 0:
@@ -107,7 +107,18 @@ def obtener_dias_disponibles(page):
     - NO contiene "sin-servicio" ni "con-pedido"
     """
     print("\n📅 Buscando días disponibles...")
-    time.sleep(2)
+    
+    # Esperar explícitamente a que el calendario cargue
+    print("   Esperando que cargue el calendario...")
+    try:
+        page.wait_for_selector('div[id^="date_"]', timeout=15000)
+        print("   ✅ Calendario detectado")
+    except:
+        print("   ❌ No se detectó el calendario")
+        return []
+    
+    # Espera adicional para que terminen de cargar todos los días
+    time.sleep(3)
     
     # Buscar todos los divs que tienen ID que empieza con "date_"
     todos_los_dias = page.locator('div[id^="date_"]').all()
