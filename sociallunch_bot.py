@@ -199,6 +199,7 @@ def seleccionar_item_de_categoria(page, config, categoria, keywords, descripcion
         time.sleep(1)
         
         # Los items son inputs con clase "selection_items" y tienen data-desc con la descripción
+        # Pero necesitamos hacer click en el LABEL padre para que funcione el onclick
         items = page.locator('input.selection_items').all()
         
         if not items:
@@ -219,7 +220,9 @@ def seleccionar_item_de_categoria(page, config, categoria, keywords, descripcion
                 # Verificar si coincide con algún keyword
                 for keyword in keywords:
                     if keyword.lower() in desc_lower:
-                        items_coincidentes.append({"elemento": item, "desc": desc})
+                        # Obtener el label padre para hacer click ahí
+                        label = item.locator("xpath=ancestor::label")
+                        items_coincidentes.append({"label": label, "desc": desc})
                         break
             except:
                 continue
@@ -228,7 +231,7 @@ def seleccionar_item_de_categoria(page, config, categoria, keywords, descripcion
         if items_coincidentes:
             elegido = random.choice(items_coincidentes)
             print(f"   ✓ Seleccionando: {elegido['desc'][:50]}...")
-            elegido["elemento"].click()
+            elegido["label"].click()
             time.sleep(config["delay_entre_acciones"] / 1000)
             print(f"   ✅ {descripcion.capitalize()} agregado/a")
             return True
@@ -237,8 +240,10 @@ def seleccionar_item_de_categoria(page, config, categoria, keywords, descripcion
             print(f"   ⚠️ No se encontró preferencia, tomando primera opción")
             primer_item = items[0]
             desc = primer_item.get_attribute("data-desc") or "item"
+            # Obtener el label padre
+            label = primer_item.locator("xpath=ancestor::label")
             print(f"   ✓ Seleccionando: {desc[:50]}...")
-            primer_item.click()
+            label.click()
             time.sleep(config["delay_entre_acciones"] / 1000)
             print(f"   ✅ {descripcion.capitalize()} agregado/a (opción alternativa)")
             return True
@@ -258,7 +263,12 @@ def confirmar_pedido(page):
     try:
         # El botón es un <a> con id="btnConfirmarPedido"
         page.click('#btnConfirmarPedido', timeout=5000)
+        
+        # Esperar a que se procese la confirmación
+        time.sleep(3)
+        page.wait_for_load_state("networkidle")
         time.sleep(2)
+        
         print("   ✅ Pedido confirmado")
         return True
     except Exception as e:
