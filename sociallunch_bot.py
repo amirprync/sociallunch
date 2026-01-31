@@ -1,25 +1,16 @@
 """
 Social Lunch - Agente de Pedido Automático (Versión Cloud)
 ==========================================================
-Este script automatiza el pedido mensual de comida en Social Lunch.
-
-Preferencias configuradas:
-- Plato: Cualquier ensalada disponible
-- Postre: Alfajor de Chocolate x 60 gr / Cookie / Cuadrado de Limón
-- Bebida: Coca Zero / Pepsi Light
-- Ubicación: COHEN PISO 1
+Automatiza el pedido mensual de comida en Social Lunch.
 
 Variables de entorno requeridas:
     SOCIALLUNCH_USER: Email de login
     SOCIALLUNCH_PASS: Contraseña
 
-Uso local:
-    export SOCIALLUNCH_USER="tu@email.com"
-    export SOCIALLUNCH_PASS="tupassword"
+Uso:
     python sociallunch_bot.py
-    
-    # Modo visible (para debug):
-    python sociallunch_bot.py --visible
+    python sociallunch_bot.py --visible    # Ver navegador
+    python sociallunch_bot.py --dry-run    # Simular sin pedir
 """
 
 import argparse
@@ -51,7 +42,7 @@ def get_config():
         "password": password,
         "ubicacion": "COHEN PISO 1",
         
-        # Preferencias de comida
+        # Preferencias de comida (en minúsculas para comparación)
         "ensaladas_keywords": ["ensalada"],
         
         "postres_preferidos": [
@@ -63,12 +54,12 @@ def get_config():
         
         "bebidas_preferidas": [
             "coca zero",
-            "coca-cola zero",
+            "coca-cola zero", 
             "pepsi light",
             "pepsi zero"
         ],
         
-        # Timeouts (en milisegundos)
+        # Timeouts
         "timeout_navegacion": 30000,
         "timeout_elemento": 10000,
         "delay_entre_acciones": 1500,
@@ -85,231 +76,157 @@ def login(page, config):
     
     page.goto(config["url"], timeout=config["timeout_navegacion"])
     page.wait_for_load_state("networkidle")
+    time.sleep(2)
     
-    # Completar formulario de login
-    # Intentar varios selectores posibles para el campo de email
-    email_selectors = [
-        'input[type="email"]',
-        'input[type="text"]',
-        'input[name="mail"]',
-        'input[name="email"]',
-        'input[name="user"]',
-        'input[placeholder*="mail" i]',
-        'input[placeholder*="usuario" i]'
-    ]
-    
-    for selector in email_selectors:
-        try:
-            if page.locator(selector).count() > 0:
-                page.fill(selector, config["usuario"])
-                break
-        except:
-            continue
-    
-    # Campo de contraseña
+    # Completar login
+    page.fill('input[type="text"]', config["usuario"])
     page.fill('input[type="password"]', config["password"])
     
-    # Click en botón de login
-    login_selectors = [
-        'input[type="submit"]',
-        'button[type="submit"]',
-        'button:has-text("Ingresar")',
-        'button:has-text("Entrar")',
-        'button:has-text("Login")',
-        '.btn-login'
-    ]
+    # Submit
+    page.click('input[type="submit"]')
     
-    for selector in login_selectors:
-        try:
-            if page.locator(selector).count() > 0:
-                page.click(selector)
-                break
-        except:
-            continue
-    
-    # Esperar a que cargue el dashboard
     page.wait_for_load_state("networkidle")
     time.sleep(3)
     
-    # Verificar login exitoso
+    # Verificar login
     if page.locator("text=HOLA").count() > 0:
         print("✅ Login exitoso")
         return True
     else:
-        print("❌ Error en login - verificar credenciales")
+        print("❌ Error en login")
         return False
 
 
 def obtener_dias_disponibles(page):
-    """Obtiene la lista de días con servicio disponible."""
-    print("\n📅 Buscando días disponibles...")
+    """
+    Obtiene días disponibles para pedir.
     
-    # Esperar a que cargue el calendario
+    Estructura del HTML:
+    - div.date.futuro → Día disponible (sin pedido, con servicio)
+    - div.date.futuro.sin-servicio → Sin servicio
+    - div.date.futuro.con-pedido → Ya tiene pedido
+    """
+    print("\n📅 Buscando días disponibles...")
     time.sleep(2)
     
-    # Buscar elementos del calendario - los días son divs con números
-    # Los disponibles están en verde (sin clase disabled/inactive)
+    # Selector exacto: días futuros que NO tienen "sin-servicio" NI "con-pedido"
+    # Es decir, días donde se puede hacer un pedido nuevo
+    selector = 'div.date.futuro:not(.sin-servicio):not(.con-pedido)'
+    
+    dias_elementos = page.locator(selector).all()
+    
     dias_disponibles = []
-    
-    # Intentar encontrar los días del calendario
-    # La estructura típica es un contenedor con días clickeables
-    posibles_selectores = [
-        '.calendar-day:not(.disabled)',
-        '[class*="day"]:not([class*="disabled"])',
-        '[class*="fecha"]:not([class*="disabled"])',
-        'div[class*="active"]'
-    ]
-    
-    for selector in posibles_selectores:
+    for elem in dias_elementos:
         try:
-            elementos = page.locator(selector).all()
-            if elementos:
-                for elem in elementos:
-                    try:
-                        texto = elem.inner_text().strip()
-                        # Verificar que sea un número de día válido
-                        if texto.isdigit() and 1 <= int(texto) <= 31:
-                            # Verificar que esté visible y sea clickeable
-                            if elem.is_visible():
-                                # Verificar el color de fondo o estilo
-                                style = elem.evaluate("el => window.getComputedStyle(el).backgroundColor")
-                                # Los días activos suelen tener fondo verde o similar
-                                dias_disponibles.append({
-                                    "elemento": elem,
-                                    "numero": int(texto),
-                                    "style": style
-                                })
-                    except:
-                        continue
-                break
-        except:
+            # Obtener el ID para saber la fecha (ej: "date_2026-02-03")
+            dia_id = elem.get_attribute("id")
+            
+            # Obtener el número del día desde el div.dia_numero
+            numero_elem = elem.locator(".dia_numero")
+            if numero_elem.count() > 0:
+                numero = numero_elem.inner_text().strip()
+                
+                dias_disponibles.append({
+                    "elemento": elem,
+                    "id": dia_id,
+                    "numero": numero
+                })
+                print(f"   ✓ Día {numero} disponible ({dia_id})")
+        except Exception as e:
             continue
     
-    # Filtrar duplicados por número de día
-    dias_unicos = {}
-    for dia in dias_disponibles:
-        num = dia["numero"]
-        if num not in dias_unicos:
-            dias_unicos[num] = dia
-    
-    dias_finales = sorted(dias_unicos.values(), key=lambda x: x["numero"])
-    
-    print(f"   Encontrados {len(dias_finales)} días potencialmente disponibles")
-    return dias_finales
+    print(f"\n   Encontrados {len(dias_disponibles)} días para pedir")
+    return dias_disponibles
 
 
 def seleccionar_ubicacion(page, config):
-    """Selecciona la ubicación en el modal."""
+    """Selecciona COHEN PISO 1 en el modal."""
     print("   📍 Seleccionando ubicación...")
     
-    ubicacion = config["ubicacion"]
-    
     try:
-        # Esperar modal
-        time.sleep(1)
-        
-        # Buscar el botón con la ubicación
-        selectores = [
-            f'button:has-text("{ubicacion}")',
-            f'div:has-text("{ubicacion}")',
-            f'text="{ubicacion}"',
-            f'*:has-text("{ubicacion}")'
-        ]
-        
-        for selector in selectores:
-            try:
-                elem = page.locator(selector).first
-                if elem.is_visible():
-                    elem.click()
-                    time.sleep(config["delay_entre_acciones"] / 1000)
-                    return True
-            except:
-                continue
-        
-        print("   ⚠️ No se encontró selector de ubicación, continuando...")
-        return True  # Puede que no siempre aparezca
-        
+        # Esperar a que aparezca el modal
+        page.wait_for_selector(f'text="{config["ubicacion"]}"', timeout=5000)
+        page.click(f'text="{config["ubicacion"]}"')
+        time.sleep(config["delay_entre_acciones"] / 1000)
+        print("   ✅ Ubicación seleccionada")
+        return True
+    except PlaywrightTimeout:
+        # Puede que no aparezca el modal si ya está seleccionada
+        print("   ⏭️ Modal de ubicación no apareció, continuando...")
+        return True
     except Exception as e:
         print(f"   ⚠️ Error en ubicación: {e}")
         return True
 
 
 def seleccionar_item_de_categoria(page, config, categoria, keywords, descripcion):
-    """Navega a una categoría y selecciona un item."""
-    print(f"   🍽️ Buscando {descripcion}...")
+    """
+    Va a una categoría y selecciona un item que coincida con los keywords.
+    """
+    print(f"   🍽️ Seleccionando {descripcion}...")
     
     try:
-        # Click en la categoría del menú
+        # Click en la categoría del menú superior
         page.click(f'text="{categoria}"', timeout=5000)
         time.sleep(config["delay_entre_acciones"] / 1000)
         page.wait_for_load_state("networkidle")
         time.sleep(1)
         
-        # Buscar items en la página
-        # Los items típicamente tienen una card con nombre y botón AGREGAR
-        items_encontrados = []
+        # Buscar todos los botones AGREGAR visibles
+        botones_agregar = page.locator('text="AGREGAR"').all()
         
-        # Buscar todos los textos visibles que coincidan con keywords
-        for keyword in keywords:
+        if not botones_agregar:
+            print(f"   ⚠️ No hay items en {categoria}")
+            return False
+        
+        # Para cada botón, buscar el nombre del producto en el contenedor padre
+        items_coincidentes = []
+        
+        for boton in botones_agregar:
             try:
-                elementos = page.locator(f'text=/{keyword}/i').all()
-                for elem in elementos:
-                    try:
-                        if elem.is_visible():
-                            items_encontrados.append(elem)
-                    except:
-                        continue
+                # Subir al contenedor del producto y buscar el texto
+                # El contenedor suele ser un div que tiene el nombre y el botón
+                contenedor = boton.locator("xpath=ancestor::div[contains(@class,'card') or contains(@class,'item') or contains(@class,'producto') or position()=3]")
+                
+                if contenedor.count() == 0:
+                    # Alternativa: buscar texto en el padre inmediato
+                    contenedor = boton.locator("xpath=..")
+                
+                texto_producto = contenedor.inner_text().lower() if contenedor.count() > 0 else ""
+                
+                # Verificar si coincide con algún keyword
+                for keyword in keywords:
+                    if keyword.lower() in texto_producto:
+                        items_coincidentes.append(boton)
+                        break
             except:
                 continue
         
-        if items_encontrados:
-            # Tomar uno al azar
-            item = random.choice(items_encontrados)
-            
-            # Buscar el botón AGREGAR cercano
-            # Subir al contenedor padre y buscar el botón
-            try:
-                # Intentar encontrar AGREGAR en el mismo contenedor
-                parent = item.locator('xpath=ancestor::*[contains(@class,"card") or contains(@class,"item") or contains(@class,"producto")][1]')
-                if parent.count() > 0:
-                    boton = parent.locator('text="AGREGAR"')
-                    if boton.count() > 0:
-                        boton.first.click()
-                        print(f"   ✅ {descripcion.capitalize()} agregado/a")
-                        time.sleep(config["delay_entre_acciones"] / 1000)
-                        return True
-            except:
-                pass
-            
-            # Alternativa: buscar cualquier botón AGREGAR visible
-            try:
-                page.click('text="AGREGAR"', timeout=3000)
-                print(f"   ✅ {descripcion.capitalize()} agregado/a")
-                time.sleep(config["delay_entre_acciones"] / 1000)
-                return True
-            except:
-                pass
-        
-        # Si no encontró con keywords, tomar el primero disponible
-        try:
-            page.click('text="AGREGAR"', timeout=3000)
-            print(f"   ✅ {descripcion.capitalize()} agregado/a (opción disponible)")
+        # Si encontró coincidencias, elegir una al azar
+        if items_coincidentes:
+            boton_elegido = random.choice(items_coincidentes)
+            boton_elegido.click()
+            print(f"   ✅ {descripcion.capitalize()} agregado/a")
             time.sleep(config["delay_entre_acciones"] / 1000)
             return True
-        except:
-            print(f"   ⚠️ No se encontró {descripcion}")
-            return False
+        else:
+            # Si no hay coincidencias, tomar el primero disponible
+            print(f"   ⚠️ No se encontró preferencia, tomando primera opción")
+            botones_agregar[0].click()
+            print(f"   ✅ {descripcion.capitalize()} agregado/a (opción alternativa)")
+            time.sleep(config["delay_entre_acciones"] / 1000)
+            return True
             
     except PlaywrightTimeout:
-        print(f"   ⚠️ Categoría {categoria} no disponible")
+        print(f"   ⚠️ Categoría {categoria} no encontrada")
         return False
     except Exception as e:
         print(f"   ❌ Error: {e}")
         return False
 
 
-def confirmar_pedido(page, config):
-    """Confirma el pedido del día."""
+def confirmar_pedido(page):
+    """Confirma el pedido clickeando CONFIRMAR."""
     print("   💾 Confirmando pedido...")
     
     try:
@@ -317,23 +234,34 @@ def confirmar_pedido(page, config):
         time.sleep(2)
         print("   ✅ Pedido confirmado")
         return True
+    except Exception as e:
+        print(f"   ⚠️ Error al confirmar: {e}")
+        return False
+
+
+def volver_al_calendario(page, config):
+    """Vuelve a la pantalla del calendario."""
+    try:
+        # Intentar botón VOLVER
+        page.click('text="VOLVER"', timeout=3000)
     except:
-        # Intentar con otros selectores
         try:
-            page.click('button:has-text("CONFIRMAR")', timeout=3000)
-            time.sleep(2)
-            print("   ✅ Pedido confirmado")
-            return True
+            # Alternativa: ir directo a la URL
+            page.goto(config["url"])
         except:
-            print("   ⚠️ No se pudo confirmar")
-            return False
+            pass
+    
+    time.sleep(2)
+    page.wait_for_load_state("networkidle")
 
 
 def procesar_dia(page, config, dia_info, dry_run=False):
     """Procesa el pedido para un día específico."""
-    numero_dia = dia_info["numero"]
+    numero = dia_info["numero"]
+    dia_id = dia_info["id"]
+    
     print(f"\n{'='*50}")
-    print(f"📆 Procesando día {numero_dia}")
+    print(f"📆 Procesando día {numero} ({dia_id})")
     print(f"{'='*50}")
     
     if dry_run:
@@ -345,46 +273,54 @@ def procesar_dia(page, config, dia_info, dry_run=False):
         dia_info["elemento"].click()
         time.sleep(config["delay_entre_acciones"] / 1000)
         
-        # Seleccionar ubicación
+        # Seleccionar ubicación si aparece el modal
         seleccionar_ubicacion(page, config)
         
-        # Esperar carga del menú
+        # Esperar a que cargue el menú
         page.wait_for_load_state("networkidle")
         time.sleep(2)
         
-        # Verificar si el día tiene servicio
+        # Verificar si hay servicio
         if page.locator('text="DÍA SIN SERVICIO"').count() > 0:
             print("   ⏭️ Día sin servicio, saltando...")
-            try:
-                page.click('text="VOLVER"', timeout=3000)
-            except:
-                page.go_back()
+            volver_al_calendario(page, config)
             return True
         
-        # Seleccionar comida
-        seleccionar_item_de_categoria(page, config, "ENSALADAS", config["ensaladas_keywords"], "ensalada")
-        seleccionar_item_de_categoria(page, config, "POSTRES", config["postres_preferidos"], "postre")
-        seleccionar_item_de_categoria(page, config, "BEBIDAS", config["bebidas_preferidas"], "bebida")
+        # Seleccionar ensalada
+        seleccionar_item_de_categoria(
+            page, config,
+            "ENSALADAS",
+            config["ensaladas_keywords"],
+            "ensalada"
+        )
         
-        # Confirmar
-        confirmar_pedido(page, config)
+        # Seleccionar postre
+        seleccionar_item_de_categoria(
+            page, config,
+            "POSTRES",
+            config["postres_preferidos"],
+            "postre"
+        )
         
-        # Volver al calendario
-        time.sleep(1)
-        try:
-            page.click('text="VOLVER"', timeout=3000)
-        except:
-            try:
-                page.go_back()
-            except:
-                page.goto(config["url"])
+        # Seleccionar bebida
+        seleccionar_item_de_categoria(
+            page, config,
+            "BEBIDAS",
+            config["bebidas_preferidas"],
+            "bebida"
+        )
         
-        time.sleep(2)
+        # Confirmar pedido
+        confirmar_pedido(page)
+        
+        # Volver al calendario para el siguiente día
+        volver_al_calendario(page, config)
+        
         return True
         
     except Exception as e:
-        print(f"   ❌ Error: {e}")
-        # Intentar volver al inicio
+        print(f"   ❌ Error procesando día {numero}: {e}")
+        # Intentar volver al calendario
         try:
             page.goto(config["url"])
             time.sleep(2)
@@ -401,7 +337,7 @@ def ejecutar_agente(visible=False, dry_run=False):
     print("🤖 SOCIAL LUNCH - AGENTE DE PEDIDO AUTOMÁTICO")
     print("="*60)
     print(f"📅 Fecha: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
-    print(f"👤 Usuario: {config['usuario']}")
+    print(f"👤 Usuario: ***")
     print(f"📍 Ubicación: {config['ubicacion']}")
     if dry_run:
         print("⚠️  MODO DRY-RUN: No se harán pedidos reales")
@@ -427,11 +363,11 @@ def ejecutar_agente(visible=False, dry_run=False):
                 print("\n❌ Login fallido. Abortando.")
                 sys.exit(1)
             
-            # Obtener días
+            # Obtener días disponibles
             dias = obtener_dias_disponibles(page)
             
             if not dias:
-                print("\n⚠️ No se encontraron días disponibles")
+                print("\n✅ No hay días pendientes de pedir (ya están todos con pedido o sin servicio)")
                 sys.exit(0)
             
             print(f"\n📋 Días a procesar: {[d['numero'] for d in dias]}")
@@ -451,8 +387,9 @@ def ejecutar_agente(visible=False, dry_run=False):
             print("\n" + "="*60)
             print("📊 RESUMEN")
             print("="*60)
-            print(f"✅ Exitosos: {exitos}")
-            print(f"❌ Fallidos: {errores}")
+            print(f"✅ Pedidos exitosos: {exitos}")
+            print(f"❌ Pedidos fallidos: {errores}")
+            print(f"📅 Total días procesados: {len(dias)}")
             print("="*60)
             
             if errores > 0:
